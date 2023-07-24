@@ -3,13 +3,16 @@ import os
 import logging
 from neuron import gui,h
 from neuron.units import ms, mV
+from neuron.units import ms, mV
 import numpy as np
 # import neuron_reduce
 import time
 import matplotlib.pyplot as plt
 
 from threading import Thread
+from threading import Thread
 
+# logging.basicConfig(level=os.environ.get("LOGLEVEL", "DEBUG"))
 # logging.basicConfig(level=os.environ.get("LOGLEVEL", "DEBUG"))
 
 #Create a L5_PC model (channels in biophys3.hoc and morphology in template.hoc)
@@ -28,6 +31,8 @@ h.v_init = complex_cell.soma[0].e_pas
 synapses_list, netstims_list, netcons_list, randoms_list = [], [], [] ,[]
 seg_for_synapse_list = []
 
+#Add segments of apical and basal sections for synapses (no soma and axon)
+all_segments = [i for j in map(list,list(complex_cell.basal)) for i in j] + [i for j in map(list,list(complex_cell.apical)) for i in j] 
 #Add segments of apical and basal sections for synapses (no soma and axon)
 all_segments = [i for j in map(list,list(complex_cell.basal)) for i in j] + [i for j in map(list,list(complex_cell.apical)) for i in j] 
 len_per_segment = np.array([seg.sec.L/seg.sec.nseg for seg in all_segments])
