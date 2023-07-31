@@ -94,10 +94,7 @@ for i in range(numSyn):
 
 # print("\n" + "Loop end".center(numSyn // (2*(numSyn//100)),'-'))
 
-
 ## Shuffle and train
-
-
 distance_list = []
 distance_limit = 15 #microns
 distance_matrix = np.zeros((len(seg_for_synapse_list),len(seg_for_synapse_list)))

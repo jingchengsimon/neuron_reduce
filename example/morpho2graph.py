@@ -37,7 +37,7 @@ len_per_segment = np.array([seg.sec.L/seg.sec.nseg for seg in all_segments])
 all_sections_soma = [i for i in map(list,list(complex_cell.soma))] 
 all_sections_basal = [i for i in map(list,list(complex_cell.basal))] 
 all_sections_apical = [i for i in map(list,list(complex_cell.apical))]
-sections_basal_apical = all_sections_basal #+ all_sections_apical
+sections_basal_apical = all_sections_basal + all_sections_apical
 all_sections = all_sections_soma + all_sections_basal + all_sections_apical
 
 # Section_list = []
@@ -154,7 +154,7 @@ for i in tqdm(range(numSyn)):
 
 # Calculate the distance between all pairs of synapses 
 distance_list = []
-distance_limit = 1000 #microns
+distance_limit = 2000 #microns
 distance_matrix = np.zeros((numSyn,numSyn))
 for i in range(numSyn):
     for j in range(numSyn):
@@ -188,6 +188,7 @@ bin_list = [0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245]
 from sklearn.cluster import KMeans
 from sklearn.cluster import SpectralClustering
 
+# this is not usable
 def custom_spectral_clustering(distance_matrix, n_clusters, n_A, n_B):
     # 使用谱聚类将数据点分成两类
     spectral_clustering = SpectralClustering(n_clusters=n_clusters, affinity='precomputed', random_state=0)
@@ -271,7 +272,7 @@ def custom_kmeans(distance_matrix, n_clusters, n_A, n_B, max_iters=100000):
 
     return labels
 
-def custom_kmeans_1(distance_matrix, n_clusters, n_A, n_B, max_iters=500000):
+def custom_kmeans_1(distance_matrix, n_clusters, n_A, n_B, max_iters=10000):
     # 转换距离矩阵为相似性矩阵（通过取倒数）
     similarity_matrix = 1 / (1 + distance_matrix)
 
@@ -280,7 +281,7 @@ def custom_kmeans_1(distance_matrix, n_clusters, n_A, n_B, max_iters=500000):
     centers = similarity_matrix[center_indices]
 
     n_cluster_wished = np.array([n_A,  n_B])
-    for iter_num in range(max_iters):
+    for _ in range(max_iters):
         # 计算每个点到聚类中心的距离
         distances = np.linalg.norm(centers[:, np.newaxis] - similarity_matrix, axis=2)
 
@@ -333,28 +334,34 @@ def custom_kmeans_1(distance_matrix, n_clusters, n_A, n_B, max_iters=500000):
         if np.sum(labels == -1) == 0 and np.all(n_cluster_after >= n_cluster_wished):
             break
         
-    print(iter_num)
     # 删除被标记为-1的点
-    valid_indices = np.where(labels != -1)[0]
-    labels = labels[valid_indices]
+    # valid_indices = np.where(labels != -1)[0]
+    # labels = labels[valid_indices]
+
+    # Reassign invalid labels to 0 and 1 (temporary solution)
+    invalid_indices = np.where(labels == -1)[0]
+    indices_to_be_A = np.random.choice(invalid_indices, size=int(len(invalid_indices)/2), replace=False)
+    indices_to_be_B = np.random.choice(invalid_indices, size=len(invalid_indices)-len(indices_to_be_A), replace=False)
+              
+    labels[indices_to_be_A] = 0
+    labels[indices_to_be_B] = 1
 
     return labels
 
-# 设置聚类参数
-n_clusters = 2  # 假设我们期望聚类为3类
+# # 设置聚类参数
+# n_clusters = 2  # 假设我们期望聚类为3类
 
-# 指定各个cluster中的点的个数
-n_A = 500
-n_B = 500 
+# # 指定各个cluster中的点的个数
+# n_A = 500
+# n_B = 500
 
-# 使用自定义KMeans聚类算法聚类
-labels = custom_spectral_clustering(distance_matrix, n_clusters, n_A, n_B)
+# # 使用自定义KMeans聚类算法聚类
+# labels = custom_kmeans_1(distance_matrix, n_clusters, n_A, n_B)
 
-# 打印调整后的聚类结果
-print("聚类结果:")
-print(labels)
-print(np.count_nonzero(labels == 0))
-print(np.count_nonzero(labels == 1))
+# # 打印调整后的聚类结果
+# print("聚类结果:")
+# print(np.count_nonzero(labels == 0))
+# print(np.count_nonzero(labels == 1))
 
 # Calculate percentage
 def create_type_matrix(type_list):
@@ -370,97 +377,127 @@ def create_type_matrix(type_list):
 
     return type_matrix
 
-def calculate_bin_percentage(distance_list, type_list, bin_list):
-    # type_matrix = create_type_matrix(type_list)
+def calculate_bin_percentage(distance_matrix, type_list, bin_list):
+    type_matrix = create_type_matrix(type_list)
     percentage_list = []
     for i, j in zip(bin_list, bin_list[1:]):
-        mask_dis = (distance_list < j) & (distance_list > i)
-        mask_dis_type = mask_dis & (type_list == 1)
+        mask_dis = (distance_matrix < j) & (distance_matrix > i)
+        mask_dis_type = mask_dis & (type_matrix == 1)
         # distance_matrix_bin  = distance_matrix[(distance_matrix < j) & (distance_matrix > i)]
-        count_pairs_all = np.count_nonzero(distance_list[mask_dis])
-        count_pairs_same = np.count_nonzero(distance_list[mask_dis_type])
+        count_pairs_all = np.count_nonzero(distance_matrix[mask_dis])
+        count_pairs_same = np.count_nonzero(distance_matrix[mask_dis_type])
         percentage_list.append(count_pairs_same / count_pairs_all)
 
     return percentage_list
 
-percentage_list = calculate_bin_percentage(np.array(distance_list), np.array(type_list), bin_list)
+# percentage_list = calculate_bin_percentage(distance_matrix, type_list, bin_list)
 
-# 重新得到聚类后的type_list(谱聚类)
-type_list_clustered = ['A' if label == 0 else 'B' for label in labels]
-percentage_list_clustered = calculate_bin_percentage(np.array(distance_list), np.array(type_list_clustered), bin_list)
+# # 重新得到聚类后的type_list(谱聚类)
+# type_list_clustered = ['A' if label == 0 else 'B' for label in labels]
+# percentage_list_clustered = calculate_bin_percentage(distance_matrix, np.array(type_list_clustered), bin_list)
 
-# import numpy as np
-# from scipy.optimize import curve_fit
+# Visulize synapses on the neuron
+
+import numpy as np
+from scipy.optimize import curve_fit
 
 # 定义指数函数模型
-# def exponential_func(x, a, lambd, b):
-    # return a * np.exp(-x / lambd) + b
+def exponential_func(x, a, lambd, b):
+    return a * np.exp(-x / lambd) + b
 
-# def calculate_error(bin_list, percentage_list, initial_guess=[1, 1, 1]):
-    # initial_guess = [1, 1, 1]  
-    # x = np.array(bin_list[1:])
-    # y_noisy = np.array(percentage_list)
-    # params, covariance = curve_fit(exponential_func, x, y_noisy, p0=initial_guess, maxfev=10000)
+def calculate_error(bin_list, percentage_list, initial_guess=[1, 1, 1]):
+    initial_guess = [1, 1, 1]  
+    x = np.array(bin_list[1:])
+    y_noisy = np.array(percentage_list)
+    params, covariance = curve_fit(exponential_func, x, y_noisy, p0=initial_guess, maxfev=10000)
 
-    # # 获取拟合结果
-    # a_fit, lambd_fit, b_fit = params
+    # 获取拟合结果
+    a_fit, lambd_fit, b_fit = params
 
-    # # 计算拟合值
-    # y_fit = exponential_func(x, a_fit, lambd_fit, b_fit)
+    # 计算拟合值
+    y_fit = exponential_func(x, a_fit, lambd_fit, b_fit)
 
-    # # 计算拟合误差
-    # error = np.sqrt(np.mean((y_noisy - y_fit) ** 2))
+    # 计算拟合误差
+    error = np.sqrt(np.mean((y_noisy - y_fit) ** 2))
 
-    # return error,[a_fit, lambd_fit, b_fit]
+    return error,[a_fit, lambd_fit, b_fit]
 
-# import random
+import random
 
-# def partial_shuffle(input_list, percentage=10):
-#     '''Shuffles any n number of values in a list'''
-#     count = int(len(input_list)*percentage/100)
-#     indices_to_shuffle = random.sample(range(len(input_list)), k=count)
-#     to_shuffle = [input_list[i] for i in indices_to_shuffle]
-#     random.shuffle(to_shuffle)
-#     for index, value in enumerate(to_shuffle):
-#         old_index = indices_to_shuffle[index]
-#         input_list[old_index] = value
-#     return input_list
+def partial_shuffle(input_list, percentage=10):
+    '''Shuffles any n number of values in a list'''
+    count = int(len(input_list)*percentage/100)
+    indices_to_shuffle = random.sample(range(len(input_list)), k=count)
+    to_shuffle = [input_list[i] for i in indices_to_shuffle]
+    random.shuffle(to_shuffle)
+    for index, value in enumerate(to_shuffle):
+        old_index = indices_to_shuffle[index]
+        input_list[old_index] = value
+    return input_list
 
-# # shuffle_scale = 10
+numEpoch = 50
+shuffle_scale = 10
+type_list_fin = type_list
 
-# error_min = 0
-# type_list_fin = type_list
+# error_original, initial_guess_original = calculate_error(bin_list, percentage_list)
 
-# initial_guess_min = [1, 1, 1]
+# for plotting learning rate
+error_min_list = []
 # while True:
-#     type_list_shuffle = partial_shuffle(type_list, percentage=10)
-#     type_matrix_shuffle = create_type_matrix(type_list_shuffle)
-#     percentage_list = calculate_bin_percentage(distance_matrix, type_matrix_shuffle, bin_list)
-#     error, initial_guess = calculate_error(bin_list, percentage_list, initial_guess_min)
-#     delta_error = error_min - error 
-#     if error < error_min:
-#         error_min = error 
-#         type_list_fin = type_list_shuffle 
-#         initial_guess_min = initial_guess
-#         print('error: {:.4f}'.format(error))
-#     if error < 0.001:
-#         break
+# for i in tqdm(range(numEpoch)):
+#     error_list = [error_original]
+#     initial_guess_list = [initial_guess_original]
+#     type_list_list = [type_list_fin]
+#     for j in range(shuffle_scale):
+#         type_list_shuffle = partial_shuffle(type_list, percentage=10)
+#         percentage_list = calculate_bin_percentage(distance_matrix, type_list_shuffle, bin_list)
+#         error, initial_guess = calculate_error(bin_list, percentage_list, initial_guess_original)
+#         error_list.append(error)
+#         initial_guess_list.append(initial_guess)
+#         type_list_list.append(type_list_shuffle)
+#     error_original = min(error_list)
+#     type_list_fin = type_list_list[error_list.index(error_original)]
+#     initial_guess_original = initial_guess_list[error_list.index(error_original)]
 
-plt.figure(figsize=(8, 4))
+#     error_min_list.append(error_original)
+#     time.sleep(0.01)
+#     # delta_error = error_min - error 
+#     # if error < error_min:
+#     #     error_min = error 
+#     #     type_list_fin = type_list_shuffle 
+#     #     initial_guess_min = initial_guess
+#     #     print('error: {:.4f}'.format(error))
+#     # if error < 0.001:
+#     #     break
 
-plt.subplot(1, 2, 1)
-plt.plot(bin_list[1:], percentage_list)
-plt.xlabel('Distance (microns)')
-plt.ylabel('Percentage')
-plt.title('Percentage before clustered')
+# type_list_clustered = type_list_fin
+# percentage_list_clustered = calculate_bin_percentage(distance_matrix, type_list_clustered, bin_list)
 
-plt.subplot(1, 2, 2)
-plt.plot(bin_list[1:], percentage_list_clustered)
-plt.xlabel('Distance (microns)')
-plt.ylabel('Percentage')
-plt.title('Percentage after clustered')
+# epochs = list(range(1, numEpoch + 1))
+# plt.figure(figsize=(6, 6))
+# plt.plot(epochs, error_min_list, marker='o', linestyle='-', color='b', label='Error')
+# plt.xlabel('Epoch')
+# plt.ylabel('Error')
+# # plt.xticks(epochs)
+# # plt.grid(True)
+# plt.legend()
+# # plt.show()
 
-plt.show()
+# plt.figure(figsize=(8, 4))
+
+# plt.subplot(1, 2, 1)
+# plt.plot(bin_list[1:], percentage_list)
+# plt.xlabel('Distance (microns)')
+# plt.ylabel('Percentage')
+# plt.title('Percentage before clustered')
+
+# plt.subplot(1, 2, 2)
+# plt.plot(bin_list[1:], percentage_list_clustered)
+# plt.xlabel('Distance (microns)')
+# plt.ylabel('Percentage')
+# plt.title('Percentage after clustered')
+
+# plt.show()
 # distance_matrix_1 = distance_matrix[(type_matrix == 1)
                                     # & (distance_matrix < 2.7) 
                                     # & (distance_matrix > 0)]
@@ -477,6 +514,16 @@ plt.show()
 #                 distance_a_a_list.append(distance_matrix[i,j])
 #             if type_list[i] == type_list[j] == 'B' :#and distance_matrix[i,j] < distance_limit:
 #                 distance_b_b_list.append(distance_matrix[i,j])
+
+# distance_a_a_clustered_list = []
+# distance_b_b_clustered_list = []
+# for i in range(len(type_list_clustered)):
+#     for j in range(len(type_list_clustered)):
+#         if i < j:
+#             if type_list_clustered[i] == type_list_clustered[j] == 'A' :#and distance_matrix[i,j] < distance_limit:
+#                 distance_a_a_clustered_list.append(distance_matrix[i,j])
+#             if type_list_clustered[i] == type_list[j] == 'B' :#and distance_matrix[i,j] < distance_limit:
+#                 distance_b_b_clustered_list.append(distance_matrix[i,j])
 
 # distance_list = np.array(distance_list)
 # distance_a_a_list = np.array(distance_a_a_list)
@@ -508,15 +555,31 @@ plt.show()
 #         node_size=100)
 # plt.show()
 
-import seaborn as sns
-# plt.figure()
+# import seaborn as sns
+# plt.figure(figsize=(8, 4))
+# plt.subplot(1, 2, 1)
 # sns.histplot(distance_a_a_list, kde=True,stat="density",color='lightskyblue',linewidth=0,label='A-A')
 # sns.histplot(distance_b_b_list,kde=True,stat="density",color='orange',linewidth=0,label='B-B')
 # sns.histplot(distance_list,kde=True,stat="density",color='lightgreen',linewidth=0,label='All')
 # plt.legend()
 # plt.xlabel('Distance (microns)')
 # plt.ylabel('Probability')
+# plt.xlim(0,distance_limit)
+# plt.ylim(0,0.004)
+# plt.title('Distance distribution before clustered')
 
+# plt.subplot(1, 2, 2)
+# sns.histplot(distance_a_a_clustered_list, kde=True,stat="density",color='lightskyblue',linewidth=0,label='A-A')
+# sns.histplot(distance_b_b_clustered_list,kde=True,stat="density",color='orange',linewidth=0,label='B-B')
+# sns.histplot(distance_list,kde=True,stat="density",color='lightgreen',linewidth=0,label='All')
+# plt.legend()
+# plt.xlabel('Distance (microns)')
+# plt.ylabel('Probability')
+# plt.xlim(0,distance_limit)
+# plt.ylim(0,0.004)
+# plt.title('Distance distribution aftrer clustered')
+
+# plt.show()
 #Simulate the full neuron for 1 seconds
 soma_v = h.Vector().record(complex_cell.soma[0](0.5)._ref_v)
 dend_v = h.Vector().record(complex_cell.dend[0](0.5)._ref_v)
@@ -528,14 +591,14 @@ st = time.time()
 h.run()
 print('complex cell simulation time {:.4f}'.format(time.time()-st))
 
-#plotting the results
+# Plotting the simulation results
 
-# plt.figure()
-# plt.plot(time_v, soma_v, label='soma')
-# plt.plot(time_v, dend_v, label='basal')
-# plt.plot(time_v, apic_v, label='apical')
+plt.figure()
+plt.plot(time_v, soma_v, label='soma')
+plt.plot(time_v, dend_v, label='basal')
+plt.plot(time_v, apic_v, label='apical')
 
-# plt.legend()
-# plt.xlabel('Time (ms)')
-# plt.ylabel('Voltage (mV)')
+plt.legend()
+plt.xlabel('Time (ms)')
+plt.ylabel('Voltage (mV)')
 plt.show()
