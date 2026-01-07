@@ -296,7 +296,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run Neuron_Reduce example with optional plotting."
     )
-    parser.add_argument("--trials", type=int, default=100, help="number of trials")
+    parser.add_argument("--trials", type=int, default=10000, help="number of trials")
     parser.add_argument("--t_cut", type=float, default=200.0, help="ignore initial time (ms)")
     parser.add_argument("--window", type=float, default=6000.0, help="simulation time (ms)")
     parser.add_argument("--plot", type=str, default="true", help="whether to plot results")
