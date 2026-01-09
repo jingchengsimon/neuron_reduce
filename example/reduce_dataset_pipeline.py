@@ -55,17 +55,15 @@ class ReduceDatasetPipeline:
             inh_input_raster = sim_dict["inhInputSpikeTimes"]
             output_spikes = sim_dict["outputSpikeTimes"]
 
-            # infer dt from voltage length and time window (raster time axis)
-            n_time_steps = voltage.shape[0]
-            dt = 1.0  # ms, default fallback
-            if ex_input_raster.shape[1] > 1:
-                # assume raster uses same dt as voltage
-                dt = float(sim_dict.get("dt", 1.0))
-                if "dt" not in sim_dict:
-                    dt = 1.0  # best effort
+            # dt is fixed at 1/40000 seconds (0.025 ms) for NEURON reduce simulations
+            # This matches the dt used in neuron_reduce_simulation.py and 2_dataset_pipeline.py
+            dt_sec = float(sim_dict.get("dt", 1.0 / 40000.0))  # seconds (default: 1/40000)
+            dt_ms = dt_sec * 1000.0  # milliseconds (0.025 ms)
 
             # downsample voltage to 1 ms resolution (mean)
-            ratio = max(1, int(round(1.0 / dt))) if dt > 0 else 1
+            # ratio = number of high-res steps per low-res step (1 ms)
+            # For dt = 0.025 ms, ratio = 1 / 0.025 = 40
+            ratio = max(1, int(round(1.0 / dt_ms))) if dt_ms > 0 else 1
             new_length = (len(voltage) // ratio) * ratio
             if new_length > 0:
                 soma_voltage_low = np.mean(voltage[:new_length].reshape(-1, ratio), axis=1)
@@ -74,20 +72,20 @@ class ReduceDatasetPipeline:
 
             # convert raster back to dict of spike times per section
             # Training code expects: {synapse_idx: array_of_spike_times_in_ms}
-            def raster_to_dict(raster, step_dt):
+            def raster_to_dict(raster, step_dt_ms):
                 spikes_dict = {}
                 for idx in range(raster.shape[0]):
                     spike_indices = np.where(raster[idx] > 0)[0]
                     if len(spike_indices) > 0:
                         # Convert indices to time in ms (as integers)
-                        spike_times = (spike_indices * step_dt).astype(int)
+                        spike_times = (spike_indices * step_dt_ms).astype(int)
                         spikes_dict[idx] = spike_times.tolist()  # Convert to list for pickle compatibility
                     else:
                         spikes_dict[idx] = []  # Empty list if no spikes
                 return spikes_dict
 
-            ex_input_spikes = raster_to_dict(ex_input_raster, dt)
-            inh_input_spikes = raster_to_dict(inh_input_raster, dt)
+            ex_input_spikes = raster_to_dict(ex_input_raster, dt_ms)
+            inh_input_spikes = raster_to_dict(inh_input_raster, dt_ms)
             
             # Ensure outputSpikeTimes is numpy array of floats (training code does: (arr.astype(float) - 0.5).astype(int))
             if isinstance(output_spikes, list):
@@ -130,12 +128,19 @@ class ReduceDatasetPipeline:
                 
                 # Extract simulation duration from first valid trial
                 if sim_duration_ms is None:
-                    # Calculate duration from voltage trace length
-                    voltage_low = sim_dict.get("somaVoltageLowRes", sim_dict.get("voltage", []))
-                    if len(voltage_low) > 0:
-                        # Assume 1 ms resolution for low-res voltage (as per pipeline)
-                        sim_duration_ms = len(voltage_low)
+                    # Calculate duration from voltage trace length and dt
+                    # dt is 1/40000 seconds = 0.025 ms
+                    # For high-res voltage: duration = n_steps * dt_sec * 1000 (ms)
+                    voltage_high = sim_dict.get("somaVoltageHighRes", sim_dict.get("voltage", []))
+                    if len(voltage_high) > 0:
+                        # Get dt from the trial data (should be 1/40000 seconds)
+                        dt_sec = float(sim_dict.get("dt", 1.0 / 40000.0))
+                        # Calculate actual simulation duration in ms
+                        # duration_ms = n_time_steps * dt_sec * 1000
+                        sim_duration_ms = len(voltage_high) * dt_sec * 1000.0
                         sim_duration_sec = sim_duration_ms / 1000.0
+                        print(f"Simulation duration: {sim_duration_ms:.2f} ms ({sim_duration_sec:.2f} s)")
+                        print(f"  Voltage length: {len(voltage_high)} steps, dt: {dt_sec*1000:.4f} ms")
                 
                 # Ensure outputSpikeTimes is numpy array (not list)
                 if isinstance(sim_dict["outputSpikeTimes"], list):
@@ -149,9 +154,11 @@ class ReduceDatasetPipeline:
         # If duration is still None, try to infer from first simulation
         if sim_duration_sec is None and len(all_sim_dicts) > 0:
             first_sim = all_sim_dicts[0]
-            voltage_low = first_sim.get("somaVoltageLowRes", [])
-            if len(voltage_low) > 0:
-                sim_duration_ms = len(voltage_low)
+            voltage_high = first_sim.get("somaVoltageHighRes", first_sim.get("voltage", []))
+            if len(voltage_high) > 0:
+                # Use default dt = 1/40000 seconds if not available
+                dt_sec = 1.0 / 40000.0
+                sim_duration_ms = len(voltage_high) * dt_sec * 1000.0
                 sim_duration_sec = sim_duration_ms / 1000.0
         
         # Ensure duration is always set (required by training code)

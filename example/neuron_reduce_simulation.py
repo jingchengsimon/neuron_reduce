@@ -172,11 +172,11 @@ def run_trials(reduced_cell, synapses_list, netcons_list, randoms_list, netstims
 
         # ===== 保存当前 trial 为 pkl：构造 raster 并写入磁盘（可选） =====
         if do_save:
-            # 计算 dt 和持续时间（相对于窗口起点）
-            if len(time_v) > 1:
-                dt = float(time_v[1] - time_v[0])
-            else:
-                dt = 1.0
+            # dt is fixed at 1/40000 seconds (0.025 ms) for NEURON simulations
+            # This matches the dt used in 2_dataset_pipeline.py
+            dt_sec = 1.0 / 40000.0  # seconds
+            dt_ms = dt_sec * 1000.0  # milliseconds (0.025 ms)
+            
             t_start = float(time_v[0]) if len(time_v) > 0 else t_cut
             duration = float(time_v[-1] - t_start) if len(time_v) > 0 else t_window
 
@@ -205,10 +205,10 @@ def run_trials(reduced_cell, synapses_list, netcons_list, randoms_list, netstims
                 return raster
 
             ex_input_raster = spike_times_to_raster(
-                exc_spike_list, duration, dt, num_sections
+                exc_spike_list, duration, dt_ms, num_sections
             )
             inh_input_raster = spike_times_to_raster(
-                inh_spike_list, duration, dt, num_sections
+                inh_spike_list, duration, dt_ms, num_sections
             )
 
             # 输出 spike times（相对窗口起点）
