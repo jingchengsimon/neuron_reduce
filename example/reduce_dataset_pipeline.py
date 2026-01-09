@@ -324,6 +324,6 @@ if __name__ == "__main__":
 
     pipeline.run_full_pipeline(
         trial_ids=trial_ids,
-        num_files=max(1, len(trial_ids) // 1000),  # split roughly every 1000 trials
+        num_files=max(1, len(trial_ids) // 100),  # split roughly every 1000 trials
     )
 
