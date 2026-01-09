@@ -73,21 +73,32 @@ class ReduceDatasetPipeline:
                 soma_voltage_low = voltage.copy()
 
             # convert raster back to dict of spike times per section
+            # Training code expects: {synapse_idx: array_of_spike_times_in_ms}
             def raster_to_dict(raster, step_dt):
                 spikes_dict = {}
                 for idx in range(raster.shape[0]):
                     spike_indices = np.where(raster[idx] > 0)[0]
-                    spike_times = spike_indices * step_dt
-                    spikes_dict[idx] = spike_times.astype(int)
+                    if len(spike_indices) > 0:
+                        # Convert indices to time in ms (as integers)
+                        spike_times = (spike_indices * step_dt).astype(int)
+                        spikes_dict[idx] = spike_times.tolist()  # Convert to list for pickle compatibility
+                    else:
+                        spikes_dict[idx] = []  # Empty list if no spikes
                 return spikes_dict
 
             ex_input_spikes = raster_to_dict(ex_input_raster, dt)
             inh_input_spikes = raster_to_dict(inh_input_raster, dt)
+            
+            # Ensure outputSpikeTimes is numpy array of floats (training code does: (arr.astype(float) - 0.5).astype(int))
+            if isinstance(output_spikes, list):
+                output_spikes = np.array(output_spikes, dtype=np.float32)
+            else:
+                output_spikes = output_spikes.astype(np.float32)
 
             converted_dict = {
-                "somaVoltageHighRes": voltage,
-                "recordingTimeLowRes": np.arange(len(soma_voltage_low)),
-                "somaVoltageLowRes": soma_voltage_low,
+                "somaVoltageHighRes": voltage.astype(np.float32) if isinstance(voltage, np.ndarray) else np.array(voltage, dtype=np.float32),
+                "recordingTimeLowRes": np.arange(len(soma_voltage_low), dtype=int),
+                "somaVoltageLowRes": soma_voltage_low.astype(np.float32),
                 "exInputSpikeTimes": ex_input_spikes,
                 "inhInputSpikeTimes": inh_input_spikes,
                 "outputSpikeTimes": output_spikes,
@@ -102,6 +113,10 @@ class ReduceDatasetPipeline:
     def convert_from_trial_ids(self, trial_ids):
         all_sim_dicts = []
         trial_mapping = {}
+        
+        # Track simulation duration from first valid trial
+        sim_duration_ms = None
+        sim_duration_sec = None
 
         iterator = trial_ids
         if HAS_TQDM:
@@ -112,15 +127,42 @@ class ReduceDatasetPipeline:
                 sim_dict = self.load_trial_data(trial_id)
                 if sim_dict is None:
                     continue
+                
+                # Extract simulation duration from first valid trial
+                if sim_duration_ms is None:
+                    # Calculate duration from voltage trace length
+                    voltage_low = sim_dict.get("somaVoltageLowRes", sim_dict.get("voltage", []))
+                    if len(voltage_low) > 0:
+                        # Assume 1 ms resolution for low-res voltage (as per pipeline)
+                        sim_duration_ms = len(voltage_low)
+                        sim_duration_sec = sim_duration_ms / 1000.0
+                
+                # Ensure outputSpikeTimes is numpy array (not list)
+                if isinstance(sim_dict["outputSpikeTimes"], list):
+                    sim_dict["outputSpikeTimes"] = np.array(sim_dict["outputSpikeTimes"])
+                
                 trial_mapping[sim_index] = {"trial_index": trial_id, "sim_index": sim_index}
                 all_sim_dicts.append(sim_dict)
             except Exception as e:
                 print(f"Error processing trial {trial_id}: {e}")
 
+        # If duration is still None, try to infer from first simulation
+        if sim_duration_sec is None and len(all_sim_dicts) > 0:
+            first_sim = all_sim_dicts[0]
+            voltage_low = first_sim.get("somaVoltageLowRes", [])
+            if len(voltage_low) > 0:
+                sim_duration_ms = len(voltage_low)
+                sim_duration_sec = sim_duration_ms / 1000.0
+        
+        # Ensure duration is always set (required by training code)
+        if sim_duration_sec is None:
+            raise ValueError("Could not determine simulation duration from any trial. Please check data format.")
+        
+        # Set Params to match training code expectations
+        # Training code expects: experiment_dict['Params']['totalSimDurationInSec'] * 1000
         sim_params = {
-            "dt": None,  # dt not stored explicitly in pkl; can infer per file if needed
-            "totalSimDurationInMs": None,
-            "totalSimDurationInSec": None,
+            "totalSimDurationInSec": float(sim_duration_sec),  # Must be a number, not None
+            "totalSimDurationInMs": int(sim_duration_ms),
         }
 
         final_data = {
