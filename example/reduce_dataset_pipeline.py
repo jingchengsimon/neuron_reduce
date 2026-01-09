@@ -159,10 +159,11 @@ class ReduceDatasetPipeline:
             raise ValueError("Could not determine simulation duration from any trial. Please check data format.")
         
         # Set Params to match training code expectations
-        # Training code expects: experiment_dict['Params']['totalSimDurationInSec'] * 1000
+        # Training代码中使用: experiment_dict['Params']['totalSimDurationInSec'] * 1000
+        # 这里确保两个字段都是整数，避免后续出现 float 维度错误
         sim_params = {
-            "totalSimDurationInSec": float(sim_duration_sec),  # Must be a number, not None
-            "totalSimDurationInMs": int(sim_duration_ms),
+            "totalSimDurationInSec": int(round(sim_duration_sec)),
+            "totalSimDurationInMs": int(round(sim_duration_ms)),
         }
 
         final_data = {
