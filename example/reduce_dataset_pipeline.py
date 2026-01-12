@@ -105,8 +105,8 @@ class ReduceDatasetPipeline:
             return converted_dict
 
         except Exception as e:
-            print(f"Error loading trial {trial_id}: {e}")
-            return None
+            # Let exception propagate to caller for unified error handling
+            raise
 
     def convert_from_trial_ids(self, trial_ids):
         all_sim_dicts = []
@@ -117,8 +117,10 @@ class ReduceDatasetPipeline:
         sim_duration_sec = None
 
         iterator = trial_ids
+        pbar = None
         if HAS_TQDM:
-            iterator = tqdm.tqdm(trial_ids, desc="Processing reduce simulations")
+            pbar = tqdm.tqdm(trial_ids, desc="Processing reduce simulations")
+            iterator = pbar
 
         for sim_index, trial_id in enumerate(iterator):
             try:
@@ -139,8 +141,13 @@ class ReduceDatasetPipeline:
                         # duration_ms = n_time_steps * dt_sec * 1000
                         sim_duration_ms = len(voltage_high) * dt_sec * 1000.0
                         sim_duration_sec = sim_duration_ms / 1000.0
-                        print(f"Simulation duration: {sim_duration_ms:.2f} ms ({sim_duration_sec:.2f} s)")
-                        print(f"  Voltage length: {len(voltage_high)} steps, dt: {dt_sec*1000:.4f} ms")
+                        # Use tqdm.write() to avoid interfering with progress bar
+                        if pbar is not None:
+                            pbar.write(f"Simulation duration: {sim_duration_ms:.2f} ms ({sim_duration_sec:.2f} s)")
+                            pbar.write(f"  Voltage length: {len(voltage_high)} steps, dt: {dt_sec*1000:.4f} ms")
+                        else:
+                            print(f"Simulation duration: {sim_duration_ms:.2f} ms ({sim_duration_sec:.2f} s)")
+                            print(f"  Voltage length: {len(voltage_high)} steps, dt: {dt_sec*1000:.4f} ms")
                 
                 # Ensure outputSpikeTimes is numpy array (not list)
                 if isinstance(sim_dict["outputSpikeTimes"], list):
@@ -149,7 +156,15 @@ class ReduceDatasetPipeline:
                 trial_mapping[sim_index] = {"trial_index": trial_id, "sim_index": sim_index}
                 all_sim_dicts.append(sim_dict)
             except Exception as e:
-                print(f"Error processing trial {trial_id}: {e}")
+                # Use tqdm.write() to avoid interfering with progress bar
+                if pbar is not None:
+                    pbar.write(f"Error processing trial {trial_id}: {e}")
+                else:
+                    print(f"Error processing trial {trial_id}: {e}")
+        
+        # Close progress bar if it exists
+        if pbar is not None:
+            pbar.close()
 
         # If duration is still None, try to infer from first simulation
         if sim_duration_sec is None and len(all_sim_dicts) > 0:
