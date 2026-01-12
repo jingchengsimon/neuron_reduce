@@ -12,6 +12,44 @@ import matplotlib.pyplot as plt
 import numpy as np
 from neuron import h
 import neuron_reduce
+from scipy.signal import find_peaks
+
+
+def detect_spikes(voltage, time_array, dt_sec, threshold=0.0, min_distance=None):
+    """
+    Detect spikes in voltage trace using peak detection.
+    
+    Args:
+        voltage: Voltage trace array
+        time_array: Time array corresponding to voltage (in ms)
+        dt_sec: Time step in seconds (for high-resolution conversion)
+        threshold: Voltage threshold for spike detection (default: 0.0 mV)
+        min_distance: Minimum distance between peaks in samples (default: auto-calculated)
+                     If None, uses ~1 ms worth of samples (1 ms / dt_sec)
+    
+    Returns:
+        spike_times: Array of spike times in milliseconds (as integers)
+    """
+    # Calculate minimum distance between peaks to avoid detecting multiple peaks for same spike
+    # A typical spike lasts ~1-2 ms, so we want at least 1 ms between detected peaks
+    if min_distance is None:
+        dt_ms = dt_sec * 1000.0  # Convert to ms
+        min_distance_samples = int(np.ceil(1.0 / dt_ms))  # ~40 samples for dt=0.025 ms
+    else:
+        min_distance_samples = min_distance
+    
+    # Find peaks in voltage trace above threshold with minimum distance
+    peaks, _ = find_peaks(voltage, height=threshold, distance=min_distance_samples)
+    
+    if len(peaks) == 0:
+        return np.array([], dtype=int)
+    
+    # Convert peak indices to actual time in milliseconds (as integers)
+    # For high-resolution: peak_times = np.round(peaks * dt_sec * 1000).astype(int)
+    # This ensures all spike times are integers (no decimals)
+    peak_times = np.round(peaks * dt_sec * 1000).astype(int)
+    
+    return peak_times
 
 
 def build_reduced_cell():
@@ -161,8 +199,11 @@ def run_trials(reduced_cell, synapses_list, netcons_list, randoms_list, netstims
         time_v = time_all[valid_mask]
         soma_voltage = soma_all[valid_mask]
 
-        soma_spike_mask = soma_voltage > 0
-        soma_spike_times = time_v[soma_spike_mask]
+        # Detect spikes using peak detection method
+        # dt is 1/40000 seconds (0.025 ms) for NEURON simulations
+        dt_sec = 1.0 / 40000.0
+        spike_threshold = 0.0  # mV, threshold for spike detection
+        soma_spike_times = detect_spikes(soma_voltage, time_v, dt_sec, threshold=spike_threshold)
 
         # 统一 section 顺序（只计算一次，后续复用）
         section_names = sorted(
@@ -177,7 +218,8 @@ def run_trials(reduced_cell, synapses_list, netcons_list, randoms_list, netstims
             dt_sec = 1.0 / 40000.0  # seconds
             dt_ms = dt_sec * 1000.0  # milliseconds (0.025 ms)
             
-            t_start = float(time_v[0]) if len(time_v) > 0 else t_cut
+            # t_start should be integer to match integer spike times
+            t_start = int(np.round(float(time_v[0]))) if len(time_v) > 0 else int(np.round(t_cut))
             duration = float(time_v[-1] - t_start) if len(time_v) > 0 else t_window
 
             # 优化：批量构造 spike-time 列表（相对窗口起点）
@@ -211,8 +253,10 @@ def run_trials(reduced_cell, synapses_list, netcons_list, randoms_list, netstims
                 inh_spike_list, duration, dt_ms, num_sections
             )
 
-            # 输出 spike times（相对窗口起点）
-            output_spike_times = (soma_spike_times - t_start).astype(np.float32)
+            # 输出 spike times（相对窗口起点，保持为整数）
+            output_spike_times = (soma_spike_times - t_start).astype(int)
+
+            print(f"output_spike_times: {output_spike_times}")
 
             sim_dict = {
                 "voltage": soma_voltage.astype(np.float32),
@@ -238,8 +282,11 @@ def plot_trials(trial_index, exc_sec_spike_times, inh_sec_spike_times,
     """Plot one trial: input spikes (exc/inh) and soma voltage."""
     from matplotlib.lines import Line2D
 
+    # Calculate time offset to align x-axis at 0
+    t_start = float(time_v[0]) if len(time_v) > 0 else 0.0
+    
     # spike raster
-    plt.figure()
+    fig, ax = plt.subplots()
     section_names = sorted(
         set(list(exc_sec_spike_times.keys()) + list(inh_sec_spike_times.keys()))
     )
@@ -250,17 +297,23 @@ def plot_trials(trial_index, exc_sec_spike_times, inh_sec_spike_times,
         exc_row = idx
         exc_spikes = exc_sec_spike_times.get(sec_name, np.array([]))
         for t_spk in exc_spikes:
-            plt.vlines(t_spk, exc_row - 0.4, exc_row + 0.4, colors="tab:blue", linewidth=1)
+            # Shift time to start from 0
+            t_spk_shifted = t_spk - t_start
+            ax.vlines(t_spk_shifted, exc_row - 0.4, exc_row + 0.4, colors="tab:blue", linewidth=1)
 
         # inh rows: num_sections+1..2*num_sections
         inh_row = idx + num_sections + 1
         inh_spikes = inh_sec_spike_times.get(sec_name, np.array([]))
         for t_spk in inh_spikes:
-            plt.vlines(t_spk, inh_row - 0.4, inh_row + 0.4, colors="tab:green", linewidth=1)
+            # Shift time to start from 0
+            t_spk_shifted = t_spk - t_start
+            ax.vlines(t_spk_shifted, inh_row - 0.4, inh_row + 0.4, colors="tab:green", linewidth=1)
 
     # soma spikes at y=-1
     for t_spk in soma_spike_times:
-        plt.vlines(t_spk, -1 - 0.4, -1 + 0.4, colors="red", linewidth=1.0, alpha=0.7)
+        # Shift time to start from 0
+        t_spk_shifted = t_spk - t_start
+        ax.vlines(t_spk_shifted, -1 - 0.4, -1 + 0.4, colors="red", linewidth=1.0, alpha=0.7)
 
     exc_rows = list(range(num_sections))
     inh_rows = list(range(num_sections + 1, 2 * num_sections + 1))
@@ -270,27 +323,40 @@ def plot_trials(trial_index, exc_sec_spike_times, inh_sec_spike_times,
         + [f"exc_{i}" for i in range(num_sections)]
         + [f"inh_{i}" for i in range(num_sections)]
     )
-    plt.yticks(yticks, yticklabels)
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(yticklabels)
 
     legend_elements = [
         Line2D([0], [0], color="tab:blue", lw=1, label="exc spikes"),
         Line2D([0], [0], color="tab:green", lw=1, label="inh spikes"),
         Line2D([0], [0], color="red", lw=1, label="soma spikes"),
     ]
-    plt.legend(handles=legend_elements, loc="upper right", fontsize=8)
+    ax.legend(handles=legend_elements, loc="upper right", fontsize=8)
 
-    plt.xlabel("time (ms)")
-    plt.ylabel("section index")
-    plt.title(f"Spike times per reduced section and soma (trial {trial_index + 1})")
+    ax.set_xlabel("time (ms)")
+    ax.set_ylabel("section index")
+    ax.set_title(f"Spike times per reduced section and soma (trial {trial_index + 1})")
+    
+    # Remove top and right spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
     plt.tight_layout()
 
     # soma voltage
-    plt.figure()
-    plt.plot(time_v, soma_voltage, label=f"trial {trial_index + 1}")
-    plt.xlabel("time (ms)")
-    plt.ylabel("voltage (mV)")
-    plt.title(f"Soma voltage (trial {trial_index + 1})")
-    plt.legend()
+    fig2, ax2 = plt.subplots()
+    # Shift time to start from 0
+    time_v_shifted = time_v - t_start
+    ax2.plot(time_v_shifted, soma_voltage, label=f"trial {trial_index + 1}")
+    ax2.set_xlabel("time (ms)")
+    ax2.set_ylabel("voltage (mV)")
+    ax2.set_title(f"Soma voltage (trial {trial_index + 1})")
+    ax2.legend()
+    
+    # Remove top and right spines
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+    
     plt.tight_layout()
 
 

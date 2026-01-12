@@ -325,16 +325,40 @@ class ReduceDatasetPipeline:
 
 if __name__ == "__main__":
     # Example usage; adjust paths as needed
-    root_folder_path = "neuron_reduce_simulations"  # where trial_*.pkl are saved
-    # Align paths with IF pipeline outputs (adjust if needed)
+    script_dir = Path(__file__).parent  # Get directory where this script is located
+    root_folder_path = script_dir / "neuron_reduce_simulations"  # where trial_*.pkl are saved
+    
+    # # Local paths for macOS testing
+    # results_base = script_dir / "results" / "reduce_model"
+    # output_dir = results_base / "output_dataset"
+    # train_dir = results_base / "train"
+    # valid_dir = results_base / "valid"
+    # test_dir = results_base / "test"
+    
+    # Linux server paths (uncomment for server use):
     output_dir = "/G/results/aim2_sjc/Data/reduce_model_output_dataset"
     train_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_train"
     valid_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_valid"
     test_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_test"
 
-    # Define trial IDs you want to convert
-    num_trials = 10000
-    trial_ids = list(range(1, 1+num_trials))  # example: first 100 trials
+    # Auto-detect number of trials from available files
+    trial_files = list(root_folder_path.glob("trial_*.pkl"))
+    if trial_files:
+        # Extract trial numbers and find max
+        trial_nums = []
+        for f in trial_files:
+            try:
+                num = int(f.stem.split("_")[1])
+                trial_nums.append(num)
+            except (ValueError, IndexError):
+                continue
+        num_trials = max(trial_nums) if trial_nums else 100
+        print(f"Auto-detected {num_trials} trials from {len(trial_files)} files")
+    else:
+        num_trials = 100  # Default fallback
+        print(f"Warning: No trial files found, using default: {num_trials} trials")
+    
+    trial_ids = list(range(1, 1 + num_trials))
 
     pipeline = ReduceDatasetPipeline(
         root_folder_path=root_folder_path,
