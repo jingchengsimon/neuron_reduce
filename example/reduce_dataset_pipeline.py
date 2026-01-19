@@ -27,13 +27,15 @@ class ReduceDatasetPipeline:
     Processes pkl files and organizes them into train/validation/test sets.
     """
 
-    def __init__(self, root_folder_path, output_dir, train_dir, valid_dir, test_dir):
+    def __init__(self, root_folder_path, output_dir, train_dir, valid_dir, test_dir,
+                 time_offset_ms=0.0):
         self.root_folder_path = Path(root_folder_path)
 
         self.output_dir = Path(output_dir)
         self.train_dir = Path(train_dir)
         self.valid_dir = Path(valid_dir)
         self.test_dir = Path(test_dir)
+        self.time_offset_ms = float(time_offset_ms)
 
         self._create_directories()
 
@@ -49,6 +51,9 @@ class ReduceDatasetPipeline:
             pickle_path = self.root_folder_path / f"trial_{trial_id}.pkl"
             with open(pickle_path, "rb") as f:
                 sim_dict = pickle.load(f)
+
+            # Allow per-trial override if the pickle already stores an offset.
+            trial_offset_ms = float(sim_dict.get("timeOffsetMs", self.time_offset_ms))
 
             voltage = sim_dict["voltage"]
             ex_input_raster = sim_dict["exInputSpikeTimes"]
@@ -92,6 +97,10 @@ class ReduceDatasetPipeline:
                 output_spikes = np.array(output_spikes, dtype=np.float32)
             else:
                 output_spikes = output_spikes.astype(np.float32)
+
+            # Align output spikes with the voltage trace by adding the same offset.
+            if trial_offset_ms != 0.0:
+                output_spikes = output_spikes + trial_offset_ms
 
             converted_dict = {
                 "somaVoltageHighRes": voltage.astype(np.float32) if isinstance(voltage, np.ndarray) else np.array(voltage, dtype=np.float32),
@@ -186,6 +195,7 @@ class ReduceDatasetPipeline:
         sim_params = {
             "totalSimDurationInSec": int(round(sim_duration_sec)),
             "totalSimDurationInMs": int(round(sim_duration_ms)),
+            "timeOffsetMs": int(round(self.time_offset_ms)),
         }
 
         final_data = {
@@ -328,18 +338,18 @@ if __name__ == "__main__":
     script_dir = Path(__file__).parent  # Get directory where this script is located
     root_folder_path = script_dir / "neuron_reduce_simulations"  # where trial_*.pkl are saved
     
-    # # Local paths for macOS testing
-    # results_base = script_dir / "results" / "reduce_model"
-    # output_dir = results_base / "output_dataset"
-    # train_dir = results_base / "train"
-    # valid_dir = results_base / "valid"
-    # test_dir = results_base / "test"
+    # Local paths for macOS testing
+    results_base = script_dir / "results" / "reduce_model"
+    output_dir = results_base / "output_dataset"
+    train_dir = results_base / "train"
+    valid_dir = results_base / "valid"
+    test_dir = results_base / "test"
     
-    # Linux server paths (uncomment for server use):
-    output_dir = "/G/results/aim2_sjc/Data/reduce_model_output_dataset"
-    train_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_train"
-    valid_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_valid"
-    test_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_test"
+    # # Linux server paths (uncomment for server use):
+    # output_dir = "/G/results/aim2_sjc/Data/reduce_model_output_dataset"
+    # train_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_train"
+    # valid_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_valid"
+    # test_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_test"
 
     # Auto-detect number of trials from available files
     trial_files = list(root_folder_path.glob("trial_*.pkl"))
@@ -366,10 +376,11 @@ if __name__ == "__main__":
         train_dir=train_dir,
         valid_dir=valid_dir,
         test_dir=test_dir,
+        time_offset_ms=200.0,  # match t_cut used in neuron_reduce_simulation.py
     )
 
     pipeline.run_full_pipeline(
         trial_ids=trial_ids,
-        num_files=max(1, len(trial_ids) // 100),  # split roughly every 1000 trials
+        num_files=max(1, len(trial_ids) // 10),  # split roughly every 1000 trials
     )
 

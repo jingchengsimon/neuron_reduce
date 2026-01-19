@@ -223,6 +223,21 @@ def run_trials(reduced_cell, synapses_list, netcons_list, randoms_list, netstims
             duration = float(time_v[-1] - t_start) if len(time_v) > 0 else t_window
 
             # 优化：批量构造 spike-time 列表（相对窗口起点）
+        # Debug print: show original (absolute) and saved (relative) spike times for a few sections
+        debug_sections = 2  # print at most this many sections per type
+        debug_spikes = 10   # print at most this many spikes per section
+
+        for idx, sec_name in enumerate(section_names[:debug_sections]):
+            exc_spikes_abs = exc_sec_spike_times.get(sec_name, np.array([]))
+            if exc_spikes_abs.size > 0:
+                exc_spikes_rel = exc_spikes_abs - t_start
+                print(f"[DEBUG] exc sec {sec_name}: abs(ms) {exc_spikes_abs[:debug_spikes]} -> rel(ms) {exc_spikes_rel[:debug_spikes]} (t_start={t_start})")
+
+            inh_spikes_abs = inh_sec_spike_times.get(sec_name, np.array([]))
+            if inh_spikes_abs.size > 0:
+                inh_spikes_rel = inh_spikes_abs - t_start
+                print(f"[DEBUG] inh sec {sec_name}: abs(ms) {inh_spikes_abs[:debug_spikes]} -> rel(ms) {inh_spikes_rel[:debug_spikes]} (t_start={t_start})")
+
             exc_spike_list = []
             inh_spike_list = []
             for sec_name in section_names:
@@ -232,6 +247,7 @@ def run_trials(reduced_cell, synapses_list, netcons_list, randoms_list, netstims
                 exc_spike_list.append((exc_spikes - t_start) if exc_spikes.size > 0 else np.array([]))
                 inh_spike_list.append((inh_spikes - t_start) if inh_spikes.size > 0 else np.array([]))
 
+    
             # 优化：spike-times -> raster (section × time)，使用向量化操作
             def spike_times_to_raster(spike_times_list, duration_ms, dt_ms, n_units):
                 n_time_steps = int(np.ceil(duration_ms / dt_ms)) + 1  # 确保足够大
