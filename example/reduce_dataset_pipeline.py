@@ -338,18 +338,18 @@ if __name__ == "__main__":
     script_dir = Path(__file__).parent  # Get directory where this script is located
     root_folder_path = script_dir / "neuron_reduce_simulations"  # where trial_*.pkl are saved
     
-    # Local paths for macOS testing
-    results_base = script_dir / "results" / "reduce_model"
-    output_dir = results_base / "output_dataset"
-    train_dir = results_base / "train"
-    valid_dir = results_base / "valid"
-    test_dir = results_base / "test"
+    # # Local paths for macOS testing
+    # results_base = script_dir / "results" / "reduce_model"
+    # output_dir = results_base / "output_dataset"
+    # train_dir = results_base / "train"
+    # valid_dir = results_base / "valid"
+    # test_dir = results_base / "test"
     
-    # # Linux server paths (uncomment for server use):
-    # output_dir = "/G/results/aim2_sjc/Data/reduce_model_output_dataset"
-    # train_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_train"
-    # valid_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_valid"
-    # test_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_test"
+    # Linux server paths (uncomment for server use):
+    output_dir = "/G/results/aim2_sjc/Data/reduce_model_output_dataset"
+    train_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_train"
+    valid_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_valid"
+    test_dir = "/G/results/aim2_sjc/Models_TCN/reduce_model_InOut/data/reduce_model_test"
 
     # Auto-detect number of trials from available files
     trial_files = list(root_folder_path.glob("trial_*.pkl"))
@@ -381,6 +381,6 @@ if __name__ == "__main__":
 
     pipeline.run_full_pipeline(
         trial_ids=trial_ids,
-        num_files=max(1, len(trial_ids) // 10),  # split roughly every 1000 trials
+        num_files=max(1, len(trial_ids) // 100),  # split roughly every 1000 trials
     )
 
